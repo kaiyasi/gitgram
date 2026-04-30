@@ -11,7 +11,7 @@ import (
 
 const (
 	maxCommitLines      = 5
-	maxSummaryRunes     = 700
+	maxCommentRunes     = 300
 	maxTelegramRunes    = 3900
 	truncatedSuffixText = "\n\n(truncated)"
 )
@@ -42,7 +42,11 @@ func TelegramHTML(a activity.Activity) string {
 		writeLine(&b, "<b>"+esc(a.Repo)+"</b> "+esc(subject)+" comment "+esc(a.Action))
 		writeNumberedTitle(&b, a.Number, a.Title)
 		writeActor(&b, a.Actor)
-		writeSummary(&b, a.Summary)
+		if subject == "pull request" {
+			writeCommentSummary(&b, a.Summary)
+		} else {
+			writeSummary(&b, a.Summary)
+		}
 		writeLink(&b, a.URL)
 	case activity.EventPullRequestReview:
 		writeLine(&b, "<b>"+esc(a.Repo)+"</b> pull request review "+esc(humanize(a.Action)))
@@ -124,7 +128,27 @@ func writeSummary(b *strings.Builder, summary string) {
 		return
 	}
 	writeBlank(b)
-	writeLine(b, esc(truncateRunes(summary, maxSummaryRunes)))
+	writeLine(b, esc(summary))
+	writeBlank(b)
+}
+
+func writeCommentSummary(b *strings.Builder, summary string) {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		writeBlank(b)
+		return
+	}
+
+	truncated := utf8.RuneCountInString(summary) > maxCommentRunes
+	if truncated {
+		summary = truncateRunes(summary, maxCommentRunes)
+	}
+
+	writeBlank(b)
+	writeLine(b, esc(summary))
+	if truncated {
+		writeLine(b, "<i>Comment truncated. Open on GitHub for full text.</i>")
+	}
 	writeBlank(b)
 }
 

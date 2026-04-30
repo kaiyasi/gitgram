@@ -89,6 +89,104 @@ POST /webhooks/github
 2. 把 bot 加入 Telegram group 或 channel。
 3. 取得目標 chat id，設定到 `TELEGRAM_CHAT_ID`。
 
+## 訊息格式
+
+服務會使用 Telegram `HTML` parse mode 發送訊息。Repo 名稱會是粗體，branch、actor、commit SHA 會是 monospace，GitHub URL 會顯示成 `Open on GitHub` link。
+
+Push：
+
+```text
+owner/repo push to main
+by octocat
+
+abc1234 Fix login redirect
+def5678 Add tests
+
+Open on GitHub
+```
+
+如果一次 push 超過 5 個 commit，只會列前 5 個，最後補一行：
+
+```text
+... and 3 more commits
+```
+
+Pull Request：
+
+```text
+owner/repo pull request opened
+#12 Add login flow
+by octocat
+feature/login -> main
+Open on GitHub
+```
+
+Issue：
+
+```text
+owner/repo issue closed
+#42 Cannot login with OAuth
+by octocat
+Open on GitHub
+```
+
+Issue 或 PR comment：
+
+```text
+owner/repo pull request comment created
+#12 Add login flow
+by octocat
+
+Can you add one more test for the redirect case?
+
+Open on GitHub
+```
+
+PR comment body 超過 300 個字元時會被省略，只有 PR comment 會套用這個規則：
+
+```text
+owner/repo pull request comment created
+#12 Add login flow
+by octocat
+
+Very long comment body...
+Comment truncated. Open on GitHub for full text.
+
+Open on GitHub
+```
+
+Pull Request review：
+
+```text
+owner/repo pull request review changes requested
+#12 Add login flow
+by octocat
+
+Please handle the empty token case before merge.
+
+Open on GitHub
+```
+
+Release：
+
+```text
+owner/repo release published
+v1.0.0
+by octocat
+Open on GitHub
+```
+
+GitHub Actions workflow failure：
+
+```text
+owner/repo workflow failed
+CI on main
+by octocat
+Open on GitHub
+```
+
+`workflow_run` 只會在 `action=completed` 且 `conclusion=failure` 時發送。成功、取消、略過的 workflow run 會被忽略。
+
 ## 測試
 
 ```sh
