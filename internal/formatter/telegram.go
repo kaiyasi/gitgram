@@ -145,7 +145,11 @@ func writeCommentSummary(b *strings.Builder, summary string) {
 	}
 
 	writeBlank(b)
-	writeLine(b, esc(summary))
+	rendered := githubMarkdownToTelegramHTML(summary)
+	if rendered == "" {
+		rendered = esc(summary)
+	}
+	writeLine(b, rendered)
 	if truncated {
 		writeLine(b, "<i>Comment truncated. Open on GitHub for full text.</i>")
 	}

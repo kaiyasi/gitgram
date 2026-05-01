@@ -142,6 +142,8 @@ Can you add one more test for the redirect case?
 Open on GitHub
 ```
 
+PR comment 會先解析常見 GitHub Markdown，再轉成 Telegram 支援的 HTML。支援範圍包含 bold、italic、strikethrough、inline code、code block、link、blockquote、list、task list。Table 會攤平成文字，raw HTML 會被 escape，unsafe link 會只保留文字。
+
 PR comment body 超過 300 個字元時會被省略，只有 PR comment 會套用這個規則：
 
 ```text
@@ -149,7 +151,7 @@ owner/repo pull request comment created
 #12 Add login flow
 by octocat
 
-Very long comment body...
+Very long PR comment body...
 Comment truncated. Open on GitHub for full text.
 
 Open on GitHub

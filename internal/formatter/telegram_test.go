@@ -31,6 +31,91 @@ func TestTelegramHTMLEscapesUserContent(t *testing.T) {
 	}
 }
 
+func TestTelegramHTMLRendersPullRequestCommentMarkdown(t *testing.T) {
+	msg := TelegramHTML(activity.Activity{
+		Event:   activity.EventIssueComment,
+		Repo:    "owner/repo",
+		Action:  "created",
+		Subject: "pull request",
+		Number:  12,
+		Title:   "Add login",
+		Actor:   "octocat",
+		Summary: strings.Join([]string{
+			"**bold** _italic_ `code` [docs](https://example.com/docs?a=1&b=2)",
+			"",
+			"> quoted text",
+			"",
+			"- [x] done",
+			"- item",
+			"",
+			"```go",
+			`fmt.Println("<ok>")`,
+			"```",
+			"",
+			"<script>alert(1)</script>",
+		}, "\n"),
+		URL: "https://github.com/owner/repo/pull/12#issuecomment-1",
+	})
+
+	for _, want := range []string{
+		"<b>bold</b>",
+		"<i>italic</i>",
+		"<code>code</code>",
+		`<a href="https://example.com/docs?a=1&amp;b=2">docs</a>`,
+		"<blockquote>quoted text</blockquote>",
+		"- [x] done",
+		"- item",
+		"<pre>fmt.Println(&#34;&lt;ok&gt;&#34;)</pre>",
+		"&lt;script&gt;alert(1)&lt;/script&gt;",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("message does not contain %q:\n%s", want, msg)
+		}
+	}
+}
+
+func TestTelegramHTMLDropsUnsafeMarkdownLinks(t *testing.T) {
+	msg := TelegramHTML(activity.Activity{
+		Event:   activity.EventIssueComment,
+		Repo:    "owner/repo",
+		Action:  "created",
+		Subject: "pull request",
+		Number:  12,
+		Title:   "Add login",
+		Actor:   "octocat",
+		Summary: `[bad](javascript:alert(1))`,
+		URL:     "https://github.com/owner/repo/pull/12#issuecomment-1",
+	})
+
+	if strings.Contains(msg, "javascript:") {
+		t.Fatalf("unsafe link should not be rendered:\n%s", msg)
+	}
+	if !strings.Contains(msg, "bad") {
+		t.Fatalf("link label should remain visible:\n%s", msg)
+	}
+}
+
+func TestTelegramHTMLDoesNotRenderIssueCommentMarkdown(t *testing.T) {
+	msg := TelegramHTML(activity.Activity{
+		Event:   activity.EventIssueComment,
+		Repo:    "owner/repo",
+		Action:  "created",
+		Subject: "issue",
+		Number:  42,
+		Title:   "Cannot login",
+		Actor:   "octocat",
+		Summary: `**bold** [docs](https://example.com)`,
+		URL:     "https://github.com/owner/repo/issues/42#issuecomment-1",
+	})
+
+	if strings.Contains(msg, "<b>bold</b>") || strings.Contains(msg, `<a href="https://example.com">docs</a>`) {
+		t.Fatalf("issue comment markdown should not be rendered:\n%s", msg)
+	}
+	if !strings.Contains(msg, `**bold** [docs](https://example.com)`) {
+		t.Fatalf("issue comment markdown should remain literal:\n%s", msg)
+	}
+}
+
 func TestTelegramHTMLWorkflowFailure(t *testing.T) {
 	msg := TelegramHTML(activity.Activity{
 		Event:  activity.EventWorkflowRun,
