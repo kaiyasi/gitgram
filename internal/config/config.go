@@ -20,8 +20,10 @@ type Config struct {
 	TelegramChatID      string
 	PublicBaseURL       string
 	AllowedRepos        []string
+	ImportantBranches   []string
 	MaxBodyBytes        int64
 	DeliveryCacheSize   int
+	NotifyPRUpdates     bool
 }
 
 func Load() (Config, error) {
@@ -32,6 +34,7 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
 		Port:              valueOrDefault(lookup, "PORT", DefaultPort),
 		PublicBaseURL:     strings.TrimSpace(value(lookup, "PUBLIC_BASE_URL")),
+		ImportantBranches: []string{"main", "dev/main"},
 		MaxBodyBytes:      DefaultMaxBodyBytes,
 		DeliveryCacheSize: DefaultDeliveryCacheSize,
 	}
@@ -40,6 +43,10 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg.TelegramBotToken = strings.TrimSpace(value(lookup, "TELEGRAM_BOT_TOKEN"))
 	cfg.TelegramChatID = strings.TrimSpace(value(lookup, "TELEGRAM_CHAT_ID"))
 	cfg.AllowedRepos = parseCSV(value(lookup, "ALLOWED_REPOS"))
+	if branches := parseCSV(value(lookup, "IMPORTANT_BRANCHES")); len(branches) > 0 {
+		cfg.ImportantBranches = branches
+	}
+	cfg.NotifyPRUpdates = parseBool(value(lookup, "NOTIFY_PR_UPDATED"))
 
 	var missing []string
 	if cfg.GitHubWebhookSecret == "" {
@@ -114,6 +121,19 @@ func (c Config) RepoAllowed(repo string) bool {
 	return false
 }
 
+func (c Config) BranchImportant(branch string) bool {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return false
+	}
+	for _, item := range c.ImportantBranches {
+		if strings.EqualFold(strings.TrimSpace(item), branch) {
+			return true
+		}
+	}
+	return false
+}
+
 func parseCSV(raw string) []string {
 	parts := strings.Split(raw, ",")
 	out := make([]string, 0, len(parts))
@@ -131,6 +151,15 @@ func parseCSV(raw string) []string {
 		out = append(out, part)
 	}
 	return out
+}
+
+func parseBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func value(lookup func(string) (string, bool), key string) string {

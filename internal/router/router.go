@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/yorukot/gitgram/internal/activity"
 	"github.com/yorukot/gitgram/internal/formatter"
 	"github.com/yorukot/gitgram/internal/githubwebhook"
 	"github.com/yorukot/gitgram/internal/store"
@@ -19,13 +20,15 @@ type TelegramSender interface {
 }
 
 type GitHubWebhookHandler struct {
-	Secret       string
-	ChatID       string
-	MaxBodyBytes int64
-	AllowedRepo  func(repo string) bool
-	Store        store.DeliveryStore
-	Sender       TelegramSender
-	Logger       *slog.Logger
+	Secret          string
+	ChatID          string
+	MaxBodyBytes    int64
+	AllowedRepo     func(repo string) bool
+	ImportantBranch func(branch string) bool
+	NotifyPRUpdates bool
+	Store           store.DeliveryStore
+	Sender          TelegramSender
+	Logger          *slog.Logger
 }
 
 func Healthz(w http.ResponseWriter, _ *http.Request) {
@@ -100,6 +103,13 @@ func (h GitHubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if !h.shouldNotify(activity) {
+		releaseDelivery = false
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("event ignored\n"))
+		return
+	}
+
 	if h.Sender == nil {
 		http.Error(w, "telegram sender is not configured", http.StatusInternalServerError)
 		return
@@ -117,4 +127,21 @@ func (h GitHubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	releaseDelivery = false
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+func (h GitHubWebhookHandler) shouldNotify(a activity.Activity) bool {
+	switch a.Event {
+	case activity.EventPush:
+		if h.ImportantBranch == nil {
+			return true
+		}
+		return h.ImportantBranch(a.Branch)
+	case activity.EventPullRequest:
+		if a.Action == "updated" {
+			return h.NotifyPRUpdates
+		}
+		return true
+	default:
+		return true
+	}
 }

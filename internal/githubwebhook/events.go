@@ -36,6 +36,7 @@ func ParseEvent(eventType, deliveryID string, body []byte) (activity.Activity, e
 
 type account struct {
 	Login string `json:"login"`
+	Type  string `json:"type"`
 }
 
 type repository struct {
@@ -202,7 +203,10 @@ func parseIssueComment(deliveryID string, body []byte) (activity.Activity, error
 	if err := decode(body, &p); err != nil {
 		return activity.Activity{}, fmt.Errorf("parse issue_comment payload: %w", err)
 	}
-	if !oneOf(p.Action, "created", "edited") {
+	if p.Action != "created" {
+		return activity.Activity{}, ErrIgnored
+	}
+	if isBot(p.Sender) || isBot(p.Comment.User) {
 		return activity.Activity{}, ErrIgnored
 	}
 
@@ -251,10 +255,16 @@ func parsePullRequestReview(deliveryID string, body []byte) (activity.Activity, 
 	if p.Action != "submitted" {
 		return activity.Activity{}, ErrIgnored
 	}
+	if isBot(p.Sender) || isBot(p.Review.User) {
+		return activity.Activity{}, ErrIgnored
+	}
 
 	action := strings.TrimSpace(strings.ToLower(p.Review.State))
 	if action == "" {
 		action = "reviewed"
+	}
+	if action == "commented" && strings.TrimSpace(p.Review.Body) == "" {
+		return activity.Activity{}, ErrIgnored
 	}
 
 	return activity.Activity{
@@ -375,6 +385,11 @@ func firstNonZero(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func isBot(a account) bool {
+	return strings.EqualFold(strings.TrimSpace(a.Type), "bot") ||
+		strings.HasSuffix(strings.ToLower(strings.TrimSpace(a.Login)), "[bot]")
 }
 
 func branchFromRef(ref string) string {

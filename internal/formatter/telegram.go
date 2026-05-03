@@ -3,6 +3,7 @@ package formatter
 import (
 	"fmt"
 	"html"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -11,9 +12,15 @@ import (
 
 const (
 	maxCommitLines      = 5
-	maxCommentRunes     = 300
+	maxSummaryRunes     = 180
 	maxTelegramRunes    = 3900
 	truncatedSuffixText = "\n\n(truncated)"
+)
+
+var (
+	htmlCommentPattern  = regexp.MustCompile(`(?s)<!--.*?-->`)
+	htmlTagPattern      = regexp.MustCompile(`<[^>\n]*>`)
+	markdownLinkPattern = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]+\)`)
 )
 
 func TelegramHTML(a activity.Activity) string {
@@ -27,7 +34,7 @@ func TelegramHTML(a activity.Activity) string {
 		writeCommits(&b, a.Commits)
 		writeLink(&b, a.URL)
 	case activity.EventPullRequest:
-		writeLine(&b, "<b>"+esc(a.Repo)+"</b> pull request "+esc(a.Action))
+		writeLine(&b, "<b>"+esc(a.Repo)+"</b> PR "+esc(a.Action))
 		writeNumberedTitle(&b, a.Number, a.Title)
 		writeActor(&b, a.Actor)
 		writeBranchPair(&b, a.Branch, a.BaseBranch)
@@ -39,17 +46,12 @@ func TelegramHTML(a activity.Activity) string {
 		writeLink(&b, a.URL)
 	case activity.EventIssueComment:
 		subject := firstNonEmpty(a.Subject, "issue")
-		writeLine(&b, "<b>"+esc(a.Repo)+"</b> "+esc(subject)+" comment "+esc(a.Action))
+		writeLine(&b, "<b>"+esc(a.Repo)+"</b> "+commentSubject(subject)+" comment")
 		writeNumberedTitle(&b, a.Number, a.Title)
-		writeActor(&b, a.Actor)
-		if subject == "pull request" {
-			writeCommentSummary(&b, a.Summary)
-		} else {
-			writeSummary(&b, a.Summary)
-		}
+		writeActorSummary(&b, a.Actor, a.Summary)
 		writeLink(&b, a.URL)
 	case activity.EventPullRequestReview:
-		writeLine(&b, "<b>"+esc(a.Repo)+"</b> pull request review "+esc(humanize(a.Action)))
+		writeLine(&b, "<b>"+esc(a.Repo)+"</b> PR review "+esc(humanize(a.Action)))
 		writeNumberedTitle(&b, a.Number, a.Title)
 		writeActor(&b, a.Actor)
 		writeSummary(&b, a.Summary)
@@ -115,6 +117,21 @@ func writeActor(b *strings.Builder, actor string) {
 	}
 }
 
+func writeActorSummary(b *strings.Builder, actor, summary string) {
+	summary = plainSummary(summary)
+	if summary == "" {
+		writeActor(b, actor)
+		return
+	}
+	writeBlank(b)
+	if actor != "" {
+		writeLine(b, code(actor)+": "+esc(summary))
+	} else {
+		writeLine(b, esc(summary))
+	}
+	writeBlank(b)
+}
+
 func writeBranchPair(b *strings.Builder, head, base string) {
 	if head != "" && base != "" {
 		writeLine(b, code(head)+" -> "+code(base))
@@ -122,7 +139,7 @@ func writeBranchPair(b *strings.Builder, head, base string) {
 }
 
 func writeSummary(b *strings.Builder, summary string) {
-	summary = strings.TrimSpace(summary)
+	summary = plainSummary(summary)
 	if summary == "" {
 		writeBlank(b)
 		return
@@ -132,28 +149,55 @@ func writeSummary(b *strings.Builder, summary string) {
 	writeBlank(b)
 }
 
-func writeCommentSummary(b *strings.Builder, summary string) {
+func plainSummary(summary string) string {
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		writeBlank(b)
-		return
+		return ""
 	}
 
-	truncated := utf8.RuneCountInString(summary) > maxCommentRunes
-	if truncated {
-		summary = truncateRunes(summary, maxCommentRunes)
+	summary = htmlCommentPattern.ReplaceAllString(summary, "")
+	summary = html.UnescapeString(summary)
+	summary = markdownLinkPattern.ReplaceAllString(summary, "$1")
+	summary = htmlTagPattern.ReplaceAllString(summary, "")
+	summary = strings.ReplaceAll(summary, "\r\n", "\n")
+	summary = strings.ReplaceAll(summary, "\r", "\n")
+
+	var lines []string
+	for _, line := range strings.Split(summary, "\n") {
+		line = cleanSummaryLine(line)
+		if line == "" || isBoilerplateSummaryLine(line) {
+			continue
+		}
+		lines = append(lines, line)
 	}
 
-	writeBlank(b)
-	rendered := githubMarkdownToTelegramHTML(summary)
-	if rendered == "" {
-		rendered = esc(summary)
+	summary = strings.Join(lines, "\n")
+	if summary == "" {
+		return ""
 	}
-	writeLine(b, rendered)
-	if truncated {
-		writeLine(b, "<i>Comment truncated. Open on GitHub for full text.</i>")
+	return truncateRunes(summary, maxSummaryRunes)
+}
+
+func cleanSummaryLine(line string) string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimLeft(line, ">#*-_` ")
+	line = strings.NewReplacer(
+		"**", "",
+		"__", "",
+		"`", "",
+		"*", "",
+	).Replace(line)
+	return strings.Join(strings.Fields(line), " ")
+}
+
+func isBoilerplateSummaryLine(line string) bool {
+	line = strings.ToLower(strings.TrimSpace(line))
+	if line == "" {
+		return true
 	}
-	writeBlank(b)
+	return strings.Contains(line, "auto-generated comment") ||
+		strings.Contains(line, "open on github") ||
+		strings.Contains(line, "learn more")
 }
 
 func writeLink(b *strings.Builder, url string) {
@@ -191,6 +235,13 @@ func code(value string) string {
 
 func humanize(value string) string {
 	return strings.ReplaceAll(value, "_", " ")
+}
+
+func commentSubject(subject string) string {
+	if subject == "pull request" {
+		return "PR"
+	}
+	return esc(subject)
 }
 
 func firstNonEmpty(values ...string) string {

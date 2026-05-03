@@ -32,13 +32,15 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", router.Healthz)
 	mux.Handle("/webhooks/github", router.GitHubWebhookHandler{
-		Secret:       cfg.GitHubWebhookSecret,
-		ChatID:       cfg.TelegramChatID,
-		MaxBodyBytes: cfg.MaxBodyBytes,
-		AllowedRepo:  cfg.RepoAllowed,
-		Store:        store.NewMemoryDeliveryStore(cfg.DeliveryCacheSize),
-		Sender:       telegramClient,
-		Logger:       logger,
+		Secret:          cfg.GitHubWebhookSecret,
+		ChatID:          cfg.TelegramChatID,
+		MaxBodyBytes:    cfg.MaxBodyBytes,
+		AllowedRepo:     cfg.RepoAllowed,
+		ImportantBranch: cfg.BranchImportant,
+		NotifyPRUpdates: cfg.NotifyPRUpdates,
+		Store:           store.NewMemoryDeliveryStore(cfg.DeliveryCacheSize),
+		Sender:          telegramClient,
+		Logger:          logger,
 	})
 
 	server := &http.Server{

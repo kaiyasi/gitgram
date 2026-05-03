@@ -58,8 +58,86 @@ func TestGitHubWebhookHandlerSendsAndDedupes(t *testing.T) {
 	if sender.chatID != "-100123" {
 		t.Fatalf("chatID = %q, want -100123", sender.chatID)
 	}
-	if !strings.Contains(sender.text, "pull request opened") {
+	if !strings.Contains(sender.text, "PR opened") {
 		t.Fatalf("message does not look like pull request notification:\n%s", sender.text)
+	}
+}
+
+func TestGitHubWebhookHandlerIgnoresPullRequestUpdatesByDefault(t *testing.T) {
+	secret := "test-secret"
+	body := []byte(`{
+		"action": "synchronize",
+		"number": 12,
+		"repository": {"full_name": "owner/repo"},
+		"sender": {"login": "octocat"},
+		"pull_request": {
+			"html_url": "https://github.com/owner/repo/pull/12",
+			"title": "Add login",
+			"number": 12,
+			"merged": false,
+			"user": {"login": "octocat"},
+			"head": {"ref": "feature/login"},
+			"base": {"ref": "main"}
+		}
+	}`)
+
+	sender := &fakeSender{}
+	handler := router.GitHubWebhookHandler{
+		Secret:      secret,
+		ChatID:      "-100123",
+		AllowedRepo: func(repo string) bool { return repo == "owner/repo" },
+		Store:       store.NewMemoryDeliveryStore(100),
+		Sender:      sender,
+	}
+
+	req := signedWebhookRequest(secret, "pull_request", "delivery-pr-update", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if sender.calls != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.calls)
+	}
+}
+
+func TestGitHubWebhookHandlerFiltersPushBranches(t *testing.T) {
+	secret := "test-secret"
+	body := []byte(`{
+		"ref": "refs/heads/feature/login",
+		"compare": "https://github.com/owner/repo/compare/a...b",
+		"repository": {"full_name": "owner/repo"},
+		"sender": {"login": "octocat"},
+		"commits": [
+			{
+				"id": "abcdef1234567890",
+				"message": "Fix login",
+				"url": "https://github.com/owner/repo/commit/abcdef",
+				"author": {"name": "Mona"}
+			}
+		]
+	}`)
+
+	sender := &fakeSender{}
+	handler := router.GitHubWebhookHandler{
+		Secret:          secret,
+		ChatID:          "-100123",
+		AllowedRepo:     func(repo string) bool { return repo == "owner/repo" },
+		ImportantBranch: func(branch string) bool { return branch == "main" },
+		Store:           store.NewMemoryDeliveryStore(100),
+		Sender:          sender,
+	}
+
+	req := signedWebhookRequest(secret, "push", "delivery-push-feature", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if sender.calls != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.calls)
 	}
 }
 
